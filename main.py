@@ -61,6 +61,10 @@ def main():
         # Log the start of the processing
         log_message(log_file, "Starting image alignment processing...\n")
 
+        # Initialize success and fail logs
+        success_log = []
+        fail_log = []
+
         # First pass alignment
         input_dir = INPUT_DIR
         output_dir_first_pass = OUTPUT_DIR_PASS_01
@@ -99,6 +103,10 @@ def main():
             img_name = os.path.basename(img_path)
             aligned = None
             H = None
+
+            date_taken = get_date_taken(img_path)
+            out_name = f"{date_taken}.png" if date_taken else f"aligned_{img_name[:-4]}.png"
+            out_path = os.path.join(output_dir_first_pass, out_name)
 
             print(f"Processing '{img_name}'...")
 
@@ -143,27 +151,28 @@ def main():
                             borderValue=(0, 0, 0, 0)
                         )
 
-            # Log the results for this image
-            if aligned is not None:
-                date_taken = get_date_taken(img_path)
-                out_name = f"{date_taken}.png" if date_taken else f"aligned_{img_name[:-4]}.png"
-                out_path = os.path.join(output_dir_first_pass, out_name)
+            # After computing the metrics
+            tx, ty = H[0, 2], H[1, 2]
+            translation_mag = round(np.sqrt(tx ** 2 + ty ** 2), 2)
+            scale_x = round(np.sqrt(H[0, 0] ** 2 + H[1, 0] ** 2), 3)
+            scale_y = round(np.sqrt(H[0, 1] ** 2 + H[1, 1] ** 2), 3)
+            cos_angle = (H[0, 0] * H[0, 1] + H[1, 0] * H[1, 1]) / (
+                    np.sqrt(H[0, 0] ** 2 + H[1, 0] ** 2) * np.sqrt(H[0, 1] ** 2 + H[1, 1] ** 2)
+            )
+            shear_angle = round(np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0))), 2)
 
-                # Compute alignment metrics from H
-                tx, ty = H[0, 2], H[1, 2]
-                translation_mag = round(np.sqrt(tx ** 2 + ty ** 2), 2)
-                scale_x = round(np.sqrt(H[0, 0] ** 2 + H[1, 0] ** 2), 3)
-                scale_y = round(np.sqrt(H[0, 1] ** 2 + H[1, 1] ** 2), 3)
-                cos_angle = (H[0, 0] * H[0, 1] + H[1, 0] * H[1, 1]) / (
-                        np.sqrt(H[0, 0] ** 2 + H[1, 0] ** 2) * np.sqrt(H[0, 1] ** 2 + H[1, 1] ** 2)
-                )
-                shear_angle = round(np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0))), 2)
-
-                log_message(log_file, f"Processed {img_name}: aligned and saved as {out_name}")
-                log_message(log_file, f"Metrics: translation={translation_mag} px, scale=({scale_x}, {scale_y}), shear={shear_angle}°")
-                cv2.imwrite(out_path, aligned)
+            # Check if metrics pass the threshold
+            if (translation_mag > TRANSLATION_MAX_THRESHOLD or
+                scale_x > SCALE_MAX_THRESHOLD_X or scale_y > SCALE_MAX_THRESHOLD_Y or
+                shear_angle > SHEAR_MAX_THRESHOLD):
+                log_message(log_file, f"Failed to align {img_name}: translation={translation_mag} px, scale=({scale_x}, {scale_y}), shear={shear_angle}°")
+                fail_log.append(img_name)  # Add to fail_log list
             else:
-                log_message(log_file, f"Failed to align {img_name} in first pass")
+                log_message(log_file, f"Processed {img_name}: aligned and saved as {out_name}")
+                success_log.append((img_name, out_name))  # Add to success_log list
+
+            # Save the aligned image
+            cv2.imwrite(out_path, aligned)
 
         # --- Save first pass log ---
         log_message(log_file, "\nFirst pass alignment completed.\n")
@@ -179,6 +188,10 @@ def main():
 
         for img_path in image_paths:
             img_name = os.path.basename(img_path)
+
+            date_taken = get_date_taken(img_path)
+            out_name = f"{date_taken}_second_pass.png" if date_taken else f"aligned_{img_name[:-4]}_second_pass.png"
+            out_path = os.path.join(output_dir_second_pass, out_name)
 
             log_message(log_file, f"Processing second pass for {img_name}...")
 
@@ -237,6 +250,7 @@ def main():
                 success_log_second_pass.append((img_name, out_name))
             else:
                 log_message(log_file, f"Failed second pass for {img_name}")
+                fail_log_second_pass.append(img_name)
 
         # --- Save second pass log ---
         log_message(log_file, "\nSecond pass alignment completed.\n")

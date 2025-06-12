@@ -1,13 +1,5 @@
 # main.py
-
 # Tymelapse (for aligning construction progress images and creating timelapse sequences)
-
-# python.exe -m pip install --upgrade pip
-
-#pip install numpy
-#pip install piexif
-#pip install opencv-python opencv-contrib-python
-#pip install matplotlib
 
 from config.config import *
 from config.global_variables import *
@@ -43,6 +35,15 @@ def convert_to_bgra(img_bgr):
 def variance_of_laplacian(img_gray):
     return cv2.Laplacian(img_gray, cv2.CV_64F).var()
 
+def display_images_with_info(image_paths):
+    """Display images with their index and EXIF date for easier selection."""
+    print("\nAvailable images:")
+    for idx, img_path in enumerate(image_paths):
+        img_name = os.path.basename(img_path)
+        date_taken = get_date_taken(img_path)  # Get EXIF timestamp
+        date_info = date_taken if date_taken else "No EXIF data"
+        print(f"{idx}: {img_name} (Date: {date_info})")
+
 def delete_previous_outputs(output_dir):
     """Delete all files in the given output directory."""
     if os.path.exists(output_dir):
@@ -63,15 +64,15 @@ def main():
 
     # First pass alignment
     input_dir = INPUT_DIR
-    output_dir_first_pass = OUTPUT_DIR_PASS_01
-    os.makedirs(output_dir_first_pass, exist_ok=True)
-
     image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
     if not image_paths:
         print("No input images found.")
         return
 
-    selected = input(f"Enter index of reference image (0 to {len(image_paths) - 1}): ")
+    # Display the images with their index and EXIF date
+    display_images_with_info(image_paths)
+
+    selected = input(f"\nEnter index of reference image (0 to {len(image_paths) - 1}): ")
     try:
         ref_img_path = image_paths[int(selected)]
     except (IndexError, ValueError):
@@ -184,7 +185,8 @@ def main():
             fail_log.append(img_name)
 
     # --- Save first pass log ---
-    with open("first_pass_alignment_log.txt", "w", encoding="utf-8") as log:
+    first_pass_log_path = os.path.join(LOG_DIR, 'first_pass_alignment_log.txt')
+    with open(first_pass_log_path, "w", encoding="utf-8") as log:
         log.write("Successfully aligned:\n")
         for original, saved in success_log:
             log.write(f"{original} -> {saved}\n")
@@ -204,6 +206,10 @@ def main():
     os.makedirs(output_dir_second_pass, exist_ok=True)
 
     image_paths = sorted(glob(os.path.join(input_dir_first_pass, '*.png')))
+
+    success_log_second_pass = []
+    fail_log_second_pass = []
+    metrics_log_second_pass = []
 
     # Loop through the aligned images from the first pass and process them again
     for img_path in image_paths:
@@ -265,8 +271,26 @@ def main():
 
                     cv2.imwrite(out_path, aligned)
                     print(f"Second pass aligned and saved: {out_path}")
+                    success_log_second_pass.append((img_name, out_name))
                 else:
                     print(f"Failed second pass for {img_name}")
+                    fail_log_second_pass.append(img_name)
+
+    # --- Save second pass log ---
+    second_pass_log_path = os.path.join(LOG_DIR, 'second_pass_alignment_log.txt')
+    with open(second_pass_log_path, "w", encoding="utf-8") as log:
+        log.write("Successfully aligned (second pass):\n")
+        for original, saved in success_log_second_pass:
+            log.write(f"{original} -> {saved}\n")
+        log.write("\nFailed to align (second pass):\n")
+        for name in fail_log_second_pass:
+            log.write(f"{name}\n")
+        log.write("\nAlignment metrics (second pass):\n")
+        for m in metrics_log_second_pass:
+            log.write(f"{m['image']} -> {m['output']}: "
+                      f"translation={m['translation']} px, "
+                      f"scale=({m['scale_x']}, {m['scale_y']}), "
+                      f"shear={m['shear_angle']}°\n")
 
 if __name__ == "__main__":
     main()

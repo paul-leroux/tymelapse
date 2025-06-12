@@ -1,5 +1,5 @@
 # Alignment quality thresholds (in pixels or degrees)
-TRANSLATION_MIN_THRESHOLD = 0  # Minimum translation (in pixels)
+TRANSLATION_MIN_THRESHOLD = -100  # Minimum translation (in pixels)
 TRANSLATION_MAX_THRESHOLD = 100  # Maximum translation (in pixels)
 
 SCALE_MIN_THRESHOLD_X = 0.5  # Minimum scale in x direction

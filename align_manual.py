@@ -80,8 +80,8 @@ def main():
         ax.plot(x, y, 'go', alpha=0.3)
 
     pts_tgt = []
-
     i = 0  # Reset index counter for target points
+
     def onclick(event):
         nonlocal i
         if event.inaxes != ax:
@@ -145,9 +145,15 @@ def main():
     print(f"Aligned image saved to {out_path}")
 
     # Save point metadata for later use
-    metadata_path = os.path.join(OUTPUT_DIR_PASS_01, f"meta_{os.path.splitext(image_list[tgt_index])[0]}.npz")
-    np.savez(metadata_path, reference=pts_ref, target=pts_tgt)
-    print(f"Point metadata saved to {metadata_path}")
+    import json
+    meta = {
+        "reference": pts_ref.tolist(),
+        "target": pts_tgt.tolist()
+    }
+    json_path = os.path.join(INPUT_DIR, f"meta_{os.path.splitext(image_list[tgt_index])[0]}.json")
+    with open(json_path, 'w') as f:
+        json.dump(meta, f, indent=2)
+    print(f"Point metadata saved to {json_path}")
 
 
 if __name__ == "__main__":

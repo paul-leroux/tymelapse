@@ -1,1 +1,16 @@
-# clear alignment log
+# clear alignment logStarting image alignment processing...
+
+Starting image alignment processing...
+
+Reference image selected: DJI_0694.JPG
+Failed to align DJI_0046.JPG: translation=211.51 px, scale=(0.919, 0.922), shear=96.2°
+Starting image alignment processing...
+
+Reference image selected: DJI_0739.JPG
+Failed to align DJI_0046.JPG: translation=156.91 px, scale=(0.961, 1.0), shear=89.74°
+Processed DJI_0095.JPG: aligned and saved as 2024-07-24_12-44-36.png
+Failed to align DJI_0114.JPG: translation=157.65 px, scale=(0.972, 0.954), shear=91.37°
+Processed DJI_0179.JPG: aligned and saved as 2024-08-28_08-28-13.png
+Failed to align DJI_0405.JPG: translation=126.42 px, scale=(0.992, 1.005), shear=89.3°
+Processed DJI_0460.JPG: aligned and saved as 2024-03-27_08-25-35.png
+Failed to align DJI_0475.JPG: translation=2760.45 px, scale=(0.348, 0.713), shear=1.27°

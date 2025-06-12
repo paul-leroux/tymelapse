@@ -9,9 +9,17 @@ from config.config import INPUT_DIR, OUTPUT_DIR_PASS_01
 
 
 def select_points(img, title):
-    plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    plt.title(title)
+    fig, ax = plt.subplots(figsize=(12, 9))
+    ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    ax.set_title(title)
     pts = plt.ginput(n=-1, timeout=0)
+
+    # Annotate selected points with numbers
+    for i, (x, y) in enumerate(pts):
+        ax.text(x, y, str(i + 1), color='red', fontsize=12, weight='bold')
+        ax.plot(x, y, 'ro')
+
+    plt.show()
     plt.close()
     return np.array(pts, dtype=np.float32)
 
@@ -59,6 +67,11 @@ def main():
     ref_out_path = os.path.join(OUTPUT_DIR_PASS_01, ref_out_name)
     cv2.imwrite(ref_out_path, ref_img)
     print(f"Aligned image saved to {out_path}")
+
+    # Save point metadata for later use
+    metadata_path = os.path.join(OUTPUT_DIR_PASS_01, f"meta_{os.path.splitext(image_list[tgt_index])[0]}.npz")
+    np.savez(metadata_path, reference=pts_ref, target=pts_tgt)
+    print(f"Point metadata saved to {metadata_path}")
 
 
 if __name__ == "__main__":

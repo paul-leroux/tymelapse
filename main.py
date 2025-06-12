@@ -28,11 +28,11 @@ image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
 ref_img = cv2.imread(image_paths[0])
 ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
 
-# AKAZE detector
-akaze = cv2.AKAZE_create()
+# ORB detector
+orb = cv2.ORB_create(5000)
 
 # Detect features in reference
-ref_kp, ref_desc = akaze.detectAndCompute(ref_gray, None)
+ref_kp, ref_desc = orb.detectAndCompute(ref_gray, None)
 
 # Brute Force Matcher
 bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -44,7 +44,7 @@ for idx, img_path in enumerate(image_paths):
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # Detect and compute keypoints/descriptors
-    kp, desc = akaze.detectAndCompute(img_gray, None)
+    kp, desc = orb.detectAndCompute(img_gray, None)
 
     # Match descriptors
     matches = bf.match(ref_desc, desc)

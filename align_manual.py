@@ -59,22 +59,21 @@ def main():
         ax.plot(x, y, 'go', alpha=0.3)
 
     pts_tgt = []
-    i = 0
-    while i < len(pts_ref):
-        print(f"[STEP {i + 1}] Click on target point matching reference point {i + 1} (right-click to undo)")
-        clicked = plt.ginput(n=1, timeout=0, mouse_add=1, mouse_pop=3)
-        if not clicked:
-            print("No point selected. Exiting.")
-            plt.close()
+
+    def onclick(event):
+        nonlocal i
+        if event.inaxes != ax:
             return
-        pt = clicked[0]
-        if plt.get_current_fig_manager().canvas.manager.toolbar.mode != '':
-            continue
-        if pt == (None, None):
-            continue
-        if pts_tgt and np.linalg.norm(np.array(pt) - np.array(pts_tgt[-1])) < 5:
-            print("Undo last point (click detected near last point).")
+
+        if event.button == 1:  # Left click to add point
+            pts_tgt.append((event.xdata, event.ydata))
+            ax.plot(event.xdata, event.ydata, 'bo')
+            ax.text(event.xdata, event.ydata, str(i + 1), color='blue', fontsize=12, weight='bold')
+            i += 1
+        elif event.button == 3 and pts_tgt:  # Right click to undo
+            print("Undo last point")
             pts_tgt.pop()
+            i -= 1
             ax.clear()
             ax.imshow(cv2.cvtColor(tgt_img, cv2.COLOR_BGR2RGB))
             ax.set_title("Target Image – Select Points")
@@ -84,15 +83,19 @@ def main():
             for j, (x, y) in enumerate(pts_tgt):
                 ax.plot(x, y, 'bo')
                 ax.text(x, y, str(j + 1), color='blue', fontsize=12, weight='bold')
-            plt.draw()
-            i -= 1
-        else:
-            ax.plot(pt[0], pt[1], 'bo')
-            ax.text(pt[0], pt[1], str(i + 1), color='blue', fontsize=12, weight='bold')
-            pts_tgt.append(pt)
-            plt.draw()
-            i += 1
 
+        plt.draw()
+
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+
+    last_i = -1
+    while i < len(pts_ref):
+        if i != last_i:
+            print(f"[STEP {i + 1}] Click on target point matching reference point {i + 1} (right-click to undo)")
+            last_i = i
+        plt.pause(0.1)  # Allow interaction
+
+    fig.canvas.mpl_disconnect(cid)
     plt.show()
     plt.close()
     plt.close()

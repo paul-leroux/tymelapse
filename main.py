@@ -96,9 +96,12 @@ def main():
     # First pass processing
     for idx, img_path in enumerate(image_paths):
         img_name = os.path.basename(img_path)
+
+        # Include reference image in the process
         if img_path == ref_img_path:
-            print(f"Skipping reference image: {img_name}")
-            continue
+            print(f"Aligning reference image: {img_name}")
+        else:
+            print(f"Aligning '{img_name}' with reference image '{os.path.basename(ref_img_path)}'.")
 
         img = cv2.imread(img_path)
         img_gray = preprocess_gray(img)
@@ -192,8 +195,8 @@ def main():
                       f"shear={m['shear_angle']}°\n")
 
     # Second pass alignment
-    input_dir_first_pass = 'output_images/pass_01  # Output of the first pass
-    output_dir_second_pass = 'output_images/pass_02' # New directory for second pass
+    input_dir_first_pass = 'output_images/pass_01'  # Output of the first pass
+    output_dir_second_pass = 'output_images/pass_02'  # New directory for second pass
     os.makedirs(output_dir_second_pass, exist_ok=True)
 
     image_paths = sorted(glob(os.path.join(input_dir_first_pass, '*.png')))
@@ -204,7 +207,7 @@ def main():
 
         print(f"Processing second pass for {img_name}...")
 
-        img = cv2.imread(img_path)
+        img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)  # Read the image with transparency
         img_gray = preprocess_gray(img)
         img_bgra = convert_to_bgra(img)
 

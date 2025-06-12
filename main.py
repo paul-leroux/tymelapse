@@ -12,6 +12,7 @@
 from config.config import *
 from config.global_variables import *
 
+import os
 import cv2
 import numpy as np
 from glob import glob
@@ -42,7 +43,24 @@ def convert_to_bgra(img_bgr):
 def variance_of_laplacian(img_gray):
     return cv2.Laplacian(img_gray, cv2.CV_64F).var()
 
+def delete_previous_outputs(output_dir):
+    """Delete all files in the given output directory."""
+    if os.path.exists(output_dir):
+        for filename in os.listdir(output_dir):
+            file_path = os.path.join(output_dir, filename)
+            try:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)  # Delete file
+                elif os.path.isdir(file_path):
+                    os.rmdir(file_path)  # Delete directory
+            except Exception as e:
+                print(f"Error deleting {file_path}: {e}")
+
 def main():
+    # Delete previous output files before running the alignment
+    delete_previous_outputs(OUTPUT_DIR_PASS_01)
+    delete_previous_outputs(OUTPUT_DIR_PASS_02)
+
     # First pass alignment
     input_dir = INPUT_DIR
     output_dir_first_pass = OUTPUT_DIR_PASS_01

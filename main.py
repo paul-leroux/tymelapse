@@ -17,119 +17,190 @@ import os
 from glob import glob
 import piexif
 
+# Thresholds for alignment quality (adjust as needed)
+TRANSLATION_MIN_THRESHOLD = 0  # Minimum acceptable translation (in pixels)
+TRANSLATION_MAX_THRESHOLD = 100  # Maximum acceptable translation (in pixels)
+
+SCALE_MIN_THRESHOLD_X = 0.5  # Minimum acceptable scale in x direction
+SCALE_MAX_THRESHOLD_X = 1.5  # Maximum acceptable scale in x direction
+
+SCALE_MIN_THRESHOLD_Y = 0.5  # Minimum acceptable scale in y direction
+SCALE_MAX_THRESHOLD_Y = 1.5  # Maximum acceptable scale in y direction
+
+SHEAR_MIN_THRESHOLD = 85  # Minimum acceptable shear angle (degrees, around 90)
+SHEAR_MAX_THRESHOLD = 95  # Maximum acceptable shear angle (degrees, around 90)
+
 def get_date_taken(img_path):
     try:
         exif_dict = piexif.load(img_path)
         date_str = exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal].decode()
-        # Format: "2023:05:22 12:34:56" → "2023-05-22_12-34-56"
         return date_str.replace(":", "-", 2).replace(":", "-").replace(" ", "_")
     except Exception:
         return None
 
-# Set paths
-input_dir = 'input_images'
-output_dir = 'output_images/pass_01'
-os.makedirs(output_dir, exist_ok=True)
-
-# --- Preprocess: Convert to grayscale and apply CLAHE ---
 def preprocess_gray(img_bgr):
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(gray)
 
 
-# --- Convert image to 4-channel (BGRA) with full alpha ---
 def convert_to_bgra(img_bgr):
-    b, g, r = cv2.split(img_bgr)
-    alpha = np.ones_like(b) * 255
-    return cv2.merge([b, g, r, alpha])
+   b, g, r = cv2.split(img_bgr)
+   alpha = np.ones_like(b) * 255
+   return cv2.merge([b, g, r, alpha])
 
+def variance_of_laplacian(img_gray):
+    return cv2.Laplacian(img_gray, cv2.CV_64F).var()
 
-# --- Get image list ---
-image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
-ref_img = cv2.imread(image_paths[0])
-ref_gray = preprocess_gray(ref_img)
-ref_bgra = convert_to_bgra(ref_img)
+def main():
+    # first pass  alignment
+    input_dir = 'input_images'
+    output_dir = 'output_images/pass_01'
+    os.makedirs(output_dir, exist_ok=True)
 
-# --- SIFT and AKAZE detectors ---
-sift = cv2.SIFT_create()
-akaze = cv2.AKAZE_create()
+    image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
+    if not image_paths:
+        print("No input images found.")
+        return
 
-# --- FLANN matcher for SIFT ---
-FLANN_INDEX_KDTREE = 1
-index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-search_params = dict(checks=50)
-flann_sift = cv2.FlannBasedMatcher(index_params, search_params)
+    # Select sharpest image as reference
+    best_score = -1
+    ref_img_path = None
+    for path in image_paths:
+        gray = preprocess_gray(cv2.imread(path))
+        score = variance_of_laplacian(gray)
+        if score > best_score:
+            best_score = score
+            ref_img_path = path
 
-# --- BF matcher for AKAZE ---
-bf_akaze = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    ref_img = cv2.imread(ref_img_path)
+    ref_gray = preprocess_gray(ref_img)
+    ref_bgra = convert_to_bgra(ref_img)
 
-# --- Compute SIFT for reference ---
-ref_kp_sift, ref_desc_sift = sift.detectAndCompute(ref_gray, None)
+    sift = cv2.SIFT_create()
+    akaze = cv2.AKAZE_create()
+    FLANN_INDEX_KDTREE = 1
+    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+    search_params = dict(checks=50)
+    flann_sift = cv2.FlannBasedMatcher(index_params, search_params)
+    bf_akaze = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
-for idx, img_path in enumerate(image_paths):
-    img_name = os.path.basename(img_path)
-    img = cv2.imread(img_path)
-    img_gray = preprocess_gray(img)
-    img_bgra = convert_to_bgra(img)
+    ref_kp_sift, ref_desc_sift = sift.detectAndCompute(ref_gray, None)
 
-    aligned = None  # Reset for each image
+    success_log = []
+    fail_log = []
+    metrics_log = []  # Track alignment quality metrics
 
-    # --- Try SIFT + FLANN ---
-    kp, desc = sift.detectAndCompute(img_gray, None)
-    if desc is not None and len(kp) >= 10:
-        matches = flann_sift.knnMatch(ref_desc_sift, desc, k=2)
+    for idx, img_path in enumerate(image_paths):
+        img_name = os.path.basename(img_path)
 
-        # Lowe’s ratio test
-        good_matches = [m for m, n in matches if m.distance < 0.7 * n.distance]
-
-        if len(good_matches) >= 10:
-            ref_pts = np.float32([ref_kp_sift[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-            img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-            H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
-            if H is not None:
-                aligned = cv2.warpPerspective(
-                    img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
-                    flags=cv2.INTER_LINEAR,
-                    borderMode=cv2.BORDER_CONSTANT,
-                    borderValue=(0, 0, 0, 0)  # Transparent
-                )
-
-    # --- If SIFT fails, try AKAZE + BF ---
-    if aligned is None:
-        kp_ref, desc_ref = akaze.detectAndCompute(ref_gray, None)
-        kp, desc = akaze.detectAndCompute(img_gray, None)
-        if desc_ref is not None and desc is not None and len(kp) >= 10:
-            matches = bf_akaze.match(desc_ref, desc)
-            matches = sorted(matches, key=lambda x: x.distance)
-            good_matches = matches[:100]
-
-            ref_pts = np.float32([kp_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-            img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-
-            H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
-            if H is not None:
-                aligned = cv2.warpPerspective(
-                    img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
-                    flags=cv2.INTER_LINEAR,
-                    borderMode=cv2.BORDER_CONSTANT,
-                    borderValue=(0, 0, 0, 0)  # Transparent
-                )
-
-    # --- Save or report failure ---
-    if aligned is not None:
-        #out_path = os.path.join(output_dir, f'aligned_{img_name[:-4]}.png')
-
-        date_taken = get_date_taken(img_path)
-        if date_taken:
-            out_name = f"{date_taken}.png"
+        # Skip skipping the reference image
+        if img_path == ref_img_path:
+            print(f"Using '{img_name}' as reference image, aligning it with itself.")
         else:
-            out_name = f"aligned_{img_name[:-4]}.png"
+            print(f"Aligning '{img_name}' with reference image '{os.path.basename(ref_img_path)}'.")
 
-        out_path = os.path.join(output_dir, out_name)
+        img = cv2.imread(img_path)
+        img_gray = preprocess_gray(img)
+        img_bgra = convert_to_bgra(img)
+
+        aligned = None
+        H = None
+
+        kp, desc = sift.detectAndCompute(img_gray, None)
+        if desc is not None and len(kp) >= 10:
+            matches = flann_sift.knnMatch(ref_desc_sift, desc, k=2)
+            good_matches = [m for m, n in matches if m.distance < 0.7 * n.distance]
+
+            if len(good_matches) >= 10:
+                ref_pts = np.float32([ref_kp_sift[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
+                if H is not None:
+                    aligned = cv2.warpPerspective(
+                        img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
+                        flags=cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_CONSTANT,
+                        borderValue=(0, 0, 0, 0)
+                    )
+
+        if aligned is None:
+            kp_ref, desc_ref = akaze.detectAndCompute(ref_gray, None)
+            kp, desc = akaze.detectAndCompute(img_gray, None)
+            if desc_ref is not None and desc is not None and len(kp) >= 10:
+                matches = bf_akaze.match(desc_ref, desc)
+                matches = sorted(matches, key=lambda x: x.distance)
+                good_matches = matches[:100]
+
+                ref_pts = np.float32([kp_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+
+                H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
+                if H is not None:
+                    aligned = cv2.warpPerspective(
+                        img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
+                        flags=cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_CONSTANT,
+                        borderValue=(0, 0, 0, 0)
+                    )
+
+        if aligned is not None:
+            date_taken = get_date_taken(img_path)
+            out_name = f"{date_taken}.png" if date_taken else f"aligned_{img_name[:-4]}.png"
+            out_path = os.path.join(output_dir, out_name)
+
+            # Compute alignment metrics from H
+            tx, ty = H[0, 2], H[1, 2]
+            translation_mag = round(np.sqrt(tx ** 2 + ty ** 2), 2)
+            scale_x = round(np.sqrt(H[0, 0] ** 2 + H[1, 0] ** 2), 3)
+            scale_y = round(np.sqrt(H[0, 1] ** 2 + H[1, 1] ** 2), 3)
+            cos_angle = (H[0, 0] * H[0, 1] + H[1, 0] * H[1, 1]) / (
+                    np.sqrt(H[0, 0] ** 2 + H[1, 0] ** 2) * np.sqrt(H[0, 1] ** 2 + H[1, 1] ** 2)
+            )
+            shear_angle = round(np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0))), 2)
+
+            metrics_log.append({
+                "image": img_name,
+                "output": out_name,
+                "translation": translation_mag,
+                "scale_x": scale_x,
+                "scale_y": scale_y,
+                "shear_angle": shear_angle
+            })
+
+            if (translation_mag < TRANSLATION_MIN_THRESHOLD or translation_mag > TRANSLATION_MAX_THRESHOLD or
+                    scale_x < SCALE_MIN_THRESHOLD_X or scale_x > SCALE_MAX_THRESHOLD_X or
+                    scale_y < SCALE_MIN_THRESHOLD_Y or scale_y > SCALE_MAX_THRESHOLD_Y or
+                    shear_angle < SHEAR_MIN_THRESHOLD or shear_angle > SHEAR_MAX_THRESHOLD):
+
+                print(f"Alignment failed for {img_name}: translation={translation_mag} px, "
+                      f"scale=({scale_x}, {scale_y}), shear={shear_angle}°")
+                fail_log.append(img_name)  # Log the failed alignment
+            else:
+                success_log.append((img_name, out_name))  # Log the successful alignment
 
 
-        cv2.imwrite(out_path, aligned)
-        print(f"Aligned and saved: {out_path}")
-    else:
-        print(f"Failed to align {img_name}")
+            cv2.imwrite(out_path, aligned)
+            print(f"Aligned and saved: {out_path}")
+            success_log.append((img_name, out_name))
+        else:
+            print(f"Failed to align {img_name}")
+            fail_log.append(img_name)
+
+    # --- Save log ---
+    with open("alignment_log.txt", "w", encoding="utf-8") as log:
+        log.write("Successfully aligned:\n")
+        for original, saved in success_log:
+            log.write(f"{original} -> {saved}\n")
+        log.write("\nFailed to align:\n")
+        for name in fail_log:
+            log.write(f"{name}\n")
+        log.write("\nAlignment metrics:\n")
+        for m in metrics_log:
+            log.write(f"{m['image']} -> {m['output']}: "
+                      f"translation={m['translation']} px, "
+                      f"scale=({m['scale_x']}, {m['scale_y']}), "
+                      f"shear={m['shear_angle']}°\n")
+
+if __name__ == "__main__":
+    main()

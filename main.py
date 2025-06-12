@@ -66,7 +66,7 @@ def perform_alignment_pass(input_dir, output_dir, log_file):
         if desc is not None and len(kp) >= 10:
             matches = match_keypoints_flann(ref_desc_sift, desc)
             if len(matches) >= 10:
-                H = compute_homography([ref_kp_sift[m.queryIdx] for m in matches], [kp[m.trainIdx] for m in matches], matches)
+                H = compute_homography(ref_kp_sift, kp, matches)
                 if H is not None:
                     metrics = compute_alignment_metrics(H)
                     if is_alignment_acceptable(metrics, {

@@ -52,10 +52,10 @@ def variance_of_laplacian(img_gray):
     return cv2.Laplacian(img_gray, cv2.CV_64F).var()
 
 def main():
-    # first pass  alignment
+    # First pass alignment
     input_dir = 'input_images'
-    output_dir = 'output_images/pass_01'
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir_first_pass = 'aligned_images_sift_akaze'
+    os.makedirs(output_dir_first_pass, exist_ok=True)
 
     image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
     if not image_paths:
@@ -89,14 +89,12 @@ def main():
     fail_log = []
     metrics_log = []  # Track alignment quality metrics
 
+    # First pass processing
     for idx, img_path in enumerate(image_paths):
         img_name = os.path.basename(img_path)
-
-        # Skip skipping the reference image
         if img_path == ref_img_path:
-            print(f"Using '{img_name}' as reference image, aligning it with itself.")
-        else:
-            print(f"Aligning '{img_name}' with reference image '{os.path.basename(ref_img_path)}'.")
+            print(f"Skipping reference image: {img_name}")
+            continue
 
         img = cv2.imread(img_path)
         img_gray = preprocess_gray(img)
@@ -122,6 +120,7 @@ def main():
                         borderValue=(0, 0, 0, 0)
                     )
 
+        # If first pass alignment failed, try AKAZE
         if aligned is None:
             kp_ref, desc_ref = akaze.detectAndCompute(ref_gray, None)
             kp, desc = akaze.detectAndCompute(img_gray, None)
@@ -145,7 +144,7 @@ def main():
         if aligned is not None:
             date_taken = get_date_taken(img_path)
             out_name = f"{date_taken}.png" if date_taken else f"aligned_{img_name[:-4]}.png"
-            out_path = os.path.join(output_dir, out_name)
+            out_path = os.path.join(output_dir_first_pass, out_name)
 
             # Compute alignment metrics from H
             tx, ty = H[0, 2], H[1, 2]
@@ -166,27 +165,15 @@ def main():
                 "shear_angle": shear_angle
             })
 
-            if (translation_mag < TRANSLATION_MIN_THRESHOLD or translation_mag > TRANSLATION_MAX_THRESHOLD or
-                    scale_x < SCALE_MIN_THRESHOLD_X or scale_x > SCALE_MAX_THRESHOLD_X or
-                    scale_y < SCALE_MIN_THRESHOLD_Y or scale_y > SCALE_MAX_THRESHOLD_Y or
-                    shear_angle < SHEAR_MIN_THRESHOLD or shear_angle > SHEAR_MAX_THRESHOLD):
-
-                print(f"Alignment failed for {img_name}: translation={translation_mag} px, "
-                      f"scale=({scale_x}, {scale_y}), shear={shear_angle}°")
-                fail_log.append(img_name)  # Log the failed alignment
-            else:
-                success_log.append((img_name, out_name))  # Log the successful alignment
-
-
             cv2.imwrite(out_path, aligned)
-            print(f"Aligned and saved: {out_path}")
+            print(f"First pass aligned and saved: {out_path}")
             success_log.append((img_name, out_name))
         else:
-            print(f"Failed to align {img_name}")
+            print(f"Failed first pass for {img_name}")
             fail_log.append(img_name)
 
-    # --- Save log ---
-    with open("alignment_log.txt", "w", encoding="utf-8") as log:
+    # --- Save first pass log ---
+    with open("first_pass_alignment_log.txt", "w", encoding="utf-8") as log:
         log.write("Successfully aligned:\n")
         for original, saved in success_log:
             log.write(f"{original} -> {saved}\n")
@@ -199,6 +186,76 @@ def main():
                       f"translation={m['translation']} px, "
                       f"scale=({m['scale_x']}, {m['scale_y']}), "
                       f"shear={m['shear_angle']}°\n")
+
+    # Second pass alignment
+    input_dir_first_pass = 'aligned_images_sift_akaze'  # Output of the first pass
+    output_dir_second_pass = 'aligned_images_second_pass'  # New directory for second pass
+    os.makedirs(output_dir_second_pass, exist_ok=True)
+
+    image_paths = sorted(glob(os.path.join(input_dir_first_pass, '*.png')))
+
+    # Loop through the aligned images from the first pass and process them again
+    for img_path in image_paths:
+        img_name = os.path.basename(img_path)
+
+        print(f"Processing second pass for {img_name}...")
+
+        img = cv2.imread(img_path)
+        img_gray = preprocess_gray(img)
+        img_bgra = convert_to_bgra(img)
+
+        # Same process as before for the second pass
+        aligned = None
+        H = None
+        kp, desc = sift.detectAndCompute(img_gray, None)
+        if desc is not None and len(kp) >= 10:
+            matches = flann_sift.knnMatch(ref_desc_sift, desc, k=2)
+            good_matches = [m for m, n in matches if m.distance < 0.7 * n.distance]
+
+            if len(good_matches) >= 10:
+                ref_pts = np.float32([ref_kp_sift[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
+                if H is not None:
+                    aligned = cv2.warpPerspective(
+                        img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
+                        flags=cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_CONSTANT,
+                        borderValue=(0, 0, 0, 0)
+                    )
+
+        # If second pass alignment failed, try AKAZE
+        if aligned is None:
+            kp_ref, desc_ref = akaze.detectAndCompute(ref_gray, None)
+            kp, desc = akaze.detectAndCompute(img_gray, None)
+
+            if desc_ref is not None and desc is not None and len(kp) >= 10:
+                matches = bf_akaze.match(desc_ref, desc)
+                matches = sorted(matches, key=lambda x: x.distance)
+                good_matches = matches[:100]
+
+                ref_pts = np.float32([kp_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+
+                H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
+                if H is not None:
+                    aligned = cv2.warpPerspective(
+                        img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
+                        flags=cv2.INTER_LINEAR,
+                        borderMode=cv2.BORDER_CONSTANT,
+                        borderValue=(0, 0, 0, 0)
+                    )
+
+        # Save the aligned image from the second pass to the new output directory
+        if aligned is not None:
+            date_taken = get_date_taken(img_path)
+            out_name = f"{date_taken}_second_pass.png" if date_taken else f"aligned_{img_name[:-4]}_second_pass.png"
+            out_path = os.path.join(output_dir_second_pass, out_name)
+
+            cv2.imwrite(out_path, aligned)
+            print(f"Second pass aligned and saved: {out_path}")
+        else:
+            print(f"Failed second pass for {img_name}")
 
 if __name__ == "__main__":
     main()

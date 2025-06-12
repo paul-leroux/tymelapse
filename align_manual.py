@@ -4,12 +4,12 @@
 import os
 import cv2
 import numpy as np
-
 import matplotlib
-matplotlib.use('TkAgg')  # Enable interactive mode in PyCharm
 
+matplotlib.use('TkAgg')  # Enables interactive mode for point selection
 import matplotlib.pyplot as plt
 from config.config import INPUT_DIR, OUTPUT_DIR_PASS_01
+
 
 def select_points(img, title):
     fig, ax = plt.subplots(figsize=(12, 9))
@@ -49,36 +49,52 @@ def main():
 
     print("Select corresponding points in target image (same order, close window when done)...")
 
-    # Show reference image with numbered points again for guidance
     fig, ax = plt.subplots(figsize=(12, 9))
-    ax.imshow(cv2.cvtColor(ref_img, cv2.COLOR_BGR2RGB))
-    ax.set_title("Reference (Guidance)")
-    for i, (x, y) in enumerate(pts_ref):
-        ax.text(x, y, str(i + 1), color='green', fontsize=12, weight='bold')
-        ax.plot(x, y, 'go')
-    plt.show()
+    ax.imshow(cv2.cvtColor(tgt_img, cv2.COLOR_BGR2RGB))
+    ax.set_title("Target Image – Select Points")
 
-    fig, (ax_ref, ax_tgt) = plt.subplots(1, 2, figsize=(20, 9))
-    ax_ref.imshow(cv2.cvtColor(ref_img, cv2.COLOR_BGR2RGB))
-    ax_ref.set_title("Reference Image")
+    # Overlay faint reference labels
     for i, (x, y) in enumerate(pts_ref):
-        ax_ref.text(x, y, str(i + 1), color='green', fontsize=12, weight='bold')
-        ax_ref.plot(x, y, 'go')
-
-    ax_tgt.imshow(cv2.cvtColor(tgt_img, cv2.COLOR_BGR2RGB))
-    ax_tgt.set_title("Target Image – Select Points")
-    ax.set_title("Target Image – Select Points (Match Reference Numbers)")
+        ax.text(x, y, str(i + 1), color='green', fontsize=12, alpha=0.4, weight='bold')
+        ax.plot(x, y, 'go', alpha=0.3)
 
     pts_tgt = []
-    for i in range(len(pts_ref)):
-        print(f"[STEP {i + 1}] Click on target point matching reference point {i + 1}")
-        pt = plt.ginput(n=1, timeout=0)[0]
-        ax_tgt.plot(pt[0], pt[1], 'bo')
-        ax_tgt.text(pt[0], pt[1], str(i + 1), color='blue', fontsize=12, weight='bold')
-        pts_tgt.append(pt)
-        plt.draw()
+    i = 0
+    while i < len(pts_ref):
+        print(f"[STEP {i + 1}] Click on target point matching reference point {i + 1} (right-click to undo)")
+        clicked = plt.ginput(n=1, timeout=0, mouse_add=1, mouse_pop=3)
+        if not clicked:
+            print("No point selected. Exiting.")
+            plt.close()
+            return
+        pt = clicked[0]
+        if plt.get_current_fig_manager().canvas.manager.toolbar.mode != '':
+            continue
+        if pt == (None, None):
+            continue
+        if pts_tgt and np.linalg.norm(np.array(pt) - np.array(pts_tgt[-1])) < 5:
+            print("Undo last point (click detected near last point).")
+            pts_tgt.pop()
+            ax.clear()
+            ax.imshow(cv2.cvtColor(tgt_img, cv2.COLOR_BGR2RGB))
+            ax.set_title("Target Image – Select Points")
+            for j, (x, y) in enumerate(pts_ref):
+                ax.text(x, y, str(j + 1), color='green', fontsize=12, alpha=0.4, weight='bold')
+                ax.plot(x, y, 'go', alpha=0.3)
+            for j, (x, y) in enumerate(pts_tgt):
+                ax.plot(x, y, 'bo')
+                ax.text(x, y, str(j + 1), color='blue', fontsize=12, weight='bold')
+            plt.draw()
+            i -= 1
+        else:
+            ax.plot(pt[0], pt[1], 'bo')
+            ax.text(pt[0], pt[1], str(i + 1), color='blue', fontsize=12, weight='bold')
+            pts_tgt.append(pt)
+            plt.draw()
+            i += 1
 
     plt.show()
+    plt.close()
     plt.close()
     pts_tgt = np.array(pts_tgt, dtype=np.float32)
 

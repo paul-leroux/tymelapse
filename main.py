@@ -43,7 +43,6 @@ def preprocess_gray(img_bgr):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(gray)
 
-
 def convert_to_bgra(img_bgr):
    b, g, r = cv2.split(img_bgr)
    alpha = np.ones_like(b) * 255
@@ -63,15 +62,14 @@ def main():
         print("No input images found.")
         return
 
-    # Select sharpest image as reference
-    best_score = -1
-    ref_img_path = None
-    for path in image_paths:
-        gray = preprocess_gray(cv2.imread(path))
-        score = variance_of_laplacian(gray)
-        if score > best_score:
-            best_score = score
-            ref_img_path = path
+    selected = input(f"Enter index of reference image (0 to {len(image_paths) - 1}): ")
+    try:
+        ref_img_path = image_paths[int(selected)]
+    except (IndexError, ValueError):
+        print("Invalid selection. Using middle image by default.")
+        ref_img_path = image_paths[len(image_paths) // 2]
+
+    print(f"Using '{os.path.basename(ref_img_path)}' as reference image.")
 
     ref_img = cv2.imread(ref_img_path)
     ref_gray = preprocess_gray(ref_img)

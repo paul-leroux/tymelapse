@@ -44,9 +44,13 @@ def preprocess_gray(img_bgr):
     return clahe.apply(gray)
 
 def convert_to_bgra(img_bgr):
-   b, g, r = cv2.split(img_bgr)
-   alpha = np.ones_like(b) * 255
-   return cv2.merge([b, g, r, alpha])
+    # Check if the image already has 4 channels (RGBA)
+    if img_bgr.shape[2] == 4:
+        return img_bgr  # Return the image as is if it's already in BGRA format
+    else:
+        b, g, r = cv2.split(img_bgr)
+        alpha = np.ones_like(b) * 255  # Create an alpha channel with full opacity
+        return cv2.merge([b, g, r, alpha])  # Merge BGR channels with the alpha channel
 
 def variance_of_laplacian(img_gray):
     return cv2.Laplacian(img_gray, cv2.CV_64F).var()
@@ -54,7 +58,7 @@ def variance_of_laplacian(img_gray):
 def main():
     # First pass alignment
     input_dir = 'input_images'
-    output_dir_first_pass = 'aligned_images_sift_akaze'
+    output_dir_first_pass = 'output_images/pass_01'
     os.makedirs(output_dir_first_pass, exist_ok=True)
 
     image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
@@ -188,8 +192,8 @@ def main():
                       f"shear={m['shear_angle']}°\n")
 
     # Second pass alignment
-    input_dir_first_pass = 'aligned_images_sift_akaze'  # Output of the first pass
-    output_dir_second_pass = 'aligned_images_second_pass'  # New directory for second pass
+    input_dir_first_pass = 'output_images/pass_01  # Output of the first pass
+    output_dir_second_pass = 'output_images/pass_02' # New directory for second pass
     os.makedirs(output_dir_second_pass, exist_ok=True)
 
     image_paths = sorted(glob(os.path.join(input_dir_first_pass, '*.png')))

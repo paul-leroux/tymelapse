@@ -45,7 +45,32 @@ def main():
     pts_ref = select_points(ref_img, "Reference Image")
 
     print("Select corresponding points in target image (same order, close window when done)...")
-    pts_tgt = select_points(tgt_img, "Target Image")
+
+    # Show reference image with numbered points again for guidance
+    fig, ax = plt.subplots(figsize=(12, 9))
+    ax.imshow(cv2.cvtColor(ref_img, cv2.COLOR_BGR2RGB))
+    ax.set_title("Reference (Guidance)")
+    for i, (x, y) in enumerate(pts_ref):
+        ax.text(x, y, str(i + 1), color='green', fontsize=12, weight='bold')
+        ax.plot(x, y, 'go')
+    plt.show()
+
+    fig, ax = plt.subplots(figsize=(12, 9))
+    ax.imshow(cv2.cvtColor(tgt_img, cv2.COLOR_BGR2RGB))
+    ax.set_title("Target Image – Select Points (Match Reference Numbers)")
+
+    pts_tgt = []
+    for i in range(len(pts_ref)):
+        print(f"Click on target point corresponding to reference point {i + 1}")
+        pt = plt.ginput(n=1, timeout=0)[0]
+        ax.plot(pt[0], pt[1], 'bo')
+        ax.text(pt[0], pt[1], str(i + 1), color='blue', fontsize=12, weight='bold')
+        pts_tgt.append(pt)
+        plt.draw()
+
+    plt.show()
+    plt.close()
+    pts_tgt = np.array(pts_tgt, dtype=np.float32)
 
     if len(pts_ref) < 4 or len(pts_tgt) < 4 or len(pts_ref) != len(pts_tgt):
         print("Need at least 4 matching points and same number of points in both images.")

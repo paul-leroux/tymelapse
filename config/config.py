@@ -7,8 +7,8 @@ OUTPUT_DIR_PASS_02 = os.path.join(os.getcwd(), 'data', 'output_images', 'pass_02
 LOG_DIR = os.path.join(os.getcwd(), 'logs')  # Directory for storing logs
 
 # Ensure output directories exist
-os.makedirs(OUTPUT_DIR_FIRST_PASS, exist_ok=True)
-os.makedirs(OUTPUT_DIR_SECOND_PASS, exist_ok=True)
+os.makedirs(OUTPUT_DIR_PASS_01, exist_ok=True)
+os.makedirs(OUTPUT_DIR_PASS_02, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # Logging and error logs

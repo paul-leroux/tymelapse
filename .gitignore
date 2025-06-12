@@ -1,3 +1,20 @@
+# Ignore image files
+*.jpg
+*.jpeg
+*.png
+*.tiff
+*.bmp
+*.gif
+
+# Ignore output directories
+/data/output_images/
+/data/input_images/
+
+# Ignore log files
+*.log
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -9,26 +9,13 @@
 #pip install opencv-python opencv-contrib-python
 #pip install matplotlib
 
+from config.config import *
 from config.global_variables import *
 
 import cv2
 import numpy as np
-import os
 from glob import glob
 import piexif
-
-# Thresholds for alignment quality (adjust as needed)
-TRANSLATION_MIN_THRESHOLD = 0  # Minimum acceptable translation (in pixels)
-TRANSLATION_MAX_THRESHOLD = 100  # Maximum acceptable translation (in pixels)
-
-SCALE_MIN_THRESHOLD_X = 0.5  # Minimum acceptable scale in x direction
-SCALE_MAX_THRESHOLD_X = 1.5  # Maximum acceptable scale in x direction
-
-SCALE_MIN_THRESHOLD_Y = 0.5  # Minimum acceptable scale in y direction
-SCALE_MAX_THRESHOLD_Y = 1.5  # Maximum acceptable scale in y direction
-
-SHEAR_MIN_THRESHOLD = 85  # Minimum acceptable shear angle (degrees, around 90)
-SHEAR_MAX_THRESHOLD = 95  # Maximum acceptable shear angle (degrees, around 90)
 
 def get_date_taken(img_path):
     try:
@@ -57,8 +44,8 @@ def variance_of_laplacian(img_gray):
 
 def main():
     # First pass alignment
-    input_dir = 'input_images'
-    output_dir_first_pass = 'output_images/pass_01'
+    input_dir = INPUT_DIR
+    output_dir_first_pass = OUTPUT_DIR_PASS_01
     os.makedirs(output_dir_first_pass, exist_ok=True)
 
     image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
@@ -81,9 +68,8 @@ def main():
 
     sift = cv2.SIFT_create()
     akaze = cv2.AKAZE_create()
-    FLANN_INDEX_KDTREE = 1
-    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-    search_params = dict(checks=50)
+    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=FLANN_TREES)
+    search_params = dict(checks=FLANN_CHECKS)
     flann_sift = cv2.FlannBasedMatcher(index_params, search_params)
     bf_akaze = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
@@ -195,8 +181,8 @@ def main():
                       f"shear={m['shear_angle']}°\n")
 
     # Second pass alignment
-    input_dir_first_pass = 'output_images/pass_01'  # Output of the first pass
-    output_dir_second_pass = 'output_images/pass_02'  # New directory for second pass
+    input_dir_first_pass = OUTPUT_DIR_PASS_01  # Output of the first pass
+    output_dir_second_pass = OUTPUT_DIR_PASS_02  # New directory for second pass
     os.makedirs(output_dir_second_pass, exist_ok=True)
 
     image_paths = sorted(glob(os.path.join(input_dir_first_pass, '*.png')))
@@ -253,16 +239,16 @@ def main():
                         borderValue=(0, 0, 0, 0)
                     )
 
-        # Save the aligned image from the second pass to the new output directory
-        if aligned is not None:
-            date_taken = get_date_taken(img_path)
-            out_name = f"{date_taken}_second_pass.png" if date_taken else f"aligned_{img_name[:-4]}_second_pass.png"
-            out_path = os.path.join(output_dir_second_pass, out_name)
+                # Save the aligned image from the second pass to the new output directory
+                if aligned is not None:
+                    date_taken = get_date_taken(img_path)
+                    out_name = f"{date_taken}_second_pass.png" if date_taken else f"aligned_{img_name[:-4]}_second_pass.png"
+                    out_path = os.path.join(output_dir_second_pass, out_name)
 
-            cv2.imwrite(out_path, aligned)
-            print(f"Second pass aligned and saved: {out_path}")
-        else:
-            print(f"Failed second pass for {img_name}")
+                    cv2.imwrite(out_path, aligned)
+                    print(f"Second pass aligned and saved: {out_path}")
+                else:
+                    print(f"Failed second pass for {img_name}")
 
 if __name__ == "__main__":
     main()

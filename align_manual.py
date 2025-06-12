@@ -4,9 +4,12 @@
 import os
 import cv2
 import numpy as np
+
+import matplotlib
+matplotlib.use('TkAgg')  # Enable interactive mode in PyCharm
+
 import matplotlib.pyplot as plt
 from config.config import INPUT_DIR, OUTPUT_DIR_PASS_01
-
 
 def select_points(img, title):
     fig, ax = plt.subplots(figsize=(12, 9))
@@ -55,16 +58,23 @@ def main():
         ax.plot(x, y, 'go')
     plt.show()
 
-    fig, ax = plt.subplots(figsize=(12, 9))
-    ax.imshow(cv2.cvtColor(tgt_img, cv2.COLOR_BGR2RGB))
+    fig, (ax_ref, ax_tgt) = plt.subplots(1, 2, figsize=(20, 9))
+    ax_ref.imshow(cv2.cvtColor(ref_img, cv2.COLOR_BGR2RGB))
+    ax_ref.set_title("Reference Image")
+    for i, (x, y) in enumerate(pts_ref):
+        ax_ref.text(x, y, str(i + 1), color='green', fontsize=12, weight='bold')
+        ax_ref.plot(x, y, 'go')
+
+    ax_tgt.imshow(cv2.cvtColor(tgt_img, cv2.COLOR_BGR2RGB))
+    ax_tgt.set_title("Target Image – Select Points")
     ax.set_title("Target Image – Select Points (Match Reference Numbers)")
 
     pts_tgt = []
     for i in range(len(pts_ref)):
-        print(f"Click on target point corresponding to reference point {i + 1}")
+        print(f"[STEP {i + 1}] Click on target point matching reference point {i + 1}")
         pt = plt.ginput(n=1, timeout=0)[0]
-        ax.plot(pt[0], pt[1], 'bo')
-        ax.text(pt[0], pt[1], str(i + 1), color='blue', fontsize=12, weight='bold')
+        ax_tgt.plot(pt[0], pt[1], 'bo')
+        ax_tgt.text(pt[0], pt[1], str(i + 1), color='blue', fontsize=12, weight='bold')
         pts_tgt.append(pt)
         plt.draw()
 

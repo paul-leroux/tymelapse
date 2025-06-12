@@ -15,52 +15,121 @@ import cv2
 import numpy as np
 import os
 from glob import glob
+import piexif
+
+def get_date_taken(img_path):
+    try:
+        exif_dict = piexif.load(img_path)
+        date_str = exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal].decode()
+        # Format: "2023:05:22 12:34:56" → "2023-05-22_12-34-56"
+        return date_str.replace(":", "-", 2).replace(":", "-").replace(" ", "_")
+    except Exception:
+        return None
 
 # Set paths
 input_dir = 'input_images'
 output_dir = 'output_images/pass_01'
 os.makedirs(output_dir, exist_ok=True)
 
-# Get all image paths
+# --- Preprocess: Convert to grayscale and apply CLAHE ---
+def preprocess_gray(img_bgr):
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    return clahe.apply(gray)
+
+
+# --- Convert image to 4-channel (BGRA) with full alpha ---
+def convert_to_bgra(img_bgr):
+    b, g, r = cv2.split(img_bgr)
+    alpha = np.ones_like(b) * 255
+    return cv2.merge([b, g, r, alpha])
+
+
+# --- Get image list ---
 image_paths = sorted(glob(os.path.join(input_dir, '*.jpg')))
-
-# Load the reference image (first one)
 ref_img = cv2.imread(image_paths[0])
-ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
+ref_gray = preprocess_gray(ref_img)
+ref_bgra = convert_to_bgra(ref_img)
 
-# ORB detector
-orb = cv2.ORB_create(5000)
+# --- SIFT and AKAZE detectors ---
+sift = cv2.SIFT_create()
+akaze = cv2.AKAZE_create()
 
-# Detect features in reference
-ref_kp, ref_desc = orb.detectAndCompute(ref_gray, None)
+# --- FLANN matcher for SIFT ---
+FLANN_INDEX_KDTREE = 1
+index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+search_params = dict(checks=50)
+flann_sift = cv2.FlannBasedMatcher(index_params, search_params)
 
-# Brute Force Matcher
-bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+# --- BF matcher for AKAZE ---
+bf_akaze = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
-# Process each image
+# --- Compute SIFT for reference ---
+ref_kp_sift, ref_desc_sift = sift.detectAndCompute(ref_gray, None)
+
 for idx, img_path in enumerate(image_paths):
     img_name = os.path.basename(img_path)
     img = cv2.imread(img_path)
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img_gray = preprocess_gray(img)
+    img_bgra = convert_to_bgra(img)
 
-    # Detect and compute keypoints/descriptors
-    kp, desc = orb.detectAndCompute(img_gray, None)
+    aligned = None  # Reset for each image
 
-    # Match descriptors
-    matches = bf.match(ref_desc, desc)
-    matches = sorted(matches, key=lambda x: x.distance)
+    # --- Try SIFT + FLANN ---
+    kp, desc = sift.detectAndCompute(img_gray, None)
+    if desc is not None and len(kp) >= 10:
+        matches = flann_sift.knnMatch(ref_desc_sift, desc, k=2)
 
-    # Extract matched keypoints
-    ref_pts = np.float32([ref_kp[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-    img_pts = np.float32([kp[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        # Lowe’s ratio test
+        good_matches = [m for m, n in matches if m.distance < 0.7 * n.distance]
 
-    # Compute homography
-    H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
+        if len(good_matches) >= 10:
+            ref_pts = np.float32([ref_kp_sift[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
+            if H is not None:
+                aligned = cv2.warpPerspective(
+                    img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
+                    flags=cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_CONSTANT,
+                    borderValue=(0, 0, 0, 0)  # Transparent
+                )
 
-    # Warp image
-    aligned = cv2.warpPerspective(img, H, (ref_img.shape[1], ref_img.shape[0]))
+    # --- If SIFT fails, try AKAZE + BF ---
+    if aligned is None:
+        kp_ref, desc_ref = akaze.detectAndCompute(ref_gray, None)
+        kp, desc = akaze.detectAndCompute(img_gray, None)
+        if desc_ref is not None and desc is not None and len(kp) >= 10:
+            matches = bf_akaze.match(desc_ref, desc)
+            matches = sorted(matches, key=lambda x: x.distance)
+            good_matches = matches[:100]
 
-    # Save aligned image
-    out_path = os.path.join(output_dir, f'aligned_{img_name}')
-    cv2.imwrite(out_path, aligned)
-    print(f'Aligned and saved: {out_path}')
+            ref_pts = np.float32([kp_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            img_pts = np.float32([kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+
+            H, mask = cv2.findHomography(img_pts, ref_pts, cv2.RANSAC)
+            if H is not None:
+                aligned = cv2.warpPerspective(
+                    img_bgra, H, (ref_bgra.shape[1], ref_bgra.shape[0]),
+                    flags=cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_CONSTANT,
+                    borderValue=(0, 0, 0, 0)  # Transparent
+                )
+
+    # --- Save or report failure ---
+    if aligned is not None:
+        #out_path = os.path.join(output_dir, f'aligned_{img_name[:-4]}.png')
+
+        date_taken = get_date_taken(img_path)
+        if date_taken:
+            out_name = f"{date_taken}.png"
+        else:
+            out_name = f"aligned_{img_name[:-4]}.png"
+
+        out_path = os.path.join(output_dir, out_name)
+
+
+        cv2.imwrite(out_path, aligned)
+        print(f"Aligned and saved: {out_path}")
+    else:
+        print(f"Failed to align {img_name}")
